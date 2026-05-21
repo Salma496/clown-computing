@@ -7,6 +7,7 @@ require('dotenv').config();
 const teamRoutes = require('./routes/teams');
 const projectRoutes = require('./routes/projects');
 const userRoutes = require('./routes/users');
+const taskRoutes = require('./routes/tasks');
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.get('/health', (req, res) => {
 app.use('/teams', teamRoutes);
 app.use('/projects', projectRoutes);
 app.use('/users', userRoutes);
+app.use('/tasks', taskRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {

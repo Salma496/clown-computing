@@ -11,7 +11,7 @@ router.get('/', authenticate, requireRole('manager'), async (req, res, next) => 
   try {
     const result = await cognitoClient.send(new ListUsersCommand({ UserPoolId: USER_POOL_ID }));
     const users = result.Users.map(u => ({
-      username: u.Username,
+      userId: u.Attributes.find(a => a.Name === 'sub')?.Value,
       email: u.Attributes.find(a => a.Name === 'email')?.Value,
       role: u.Attributes.find(a => a.Name === 'custom:role')?.Value,
       teamId: u.Attributes.find(a => a.Name === 'custom:teamId')?.Value,
