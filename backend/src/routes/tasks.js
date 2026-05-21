@@ -64,6 +64,7 @@ router.post('/', authenticate, requireRole('manager'), async (req, res, next) =>
       priority,
       deadline,
       assigneeId,
+      teamId,
       imageUrl,
       imageKey
     } = req.body;
@@ -86,13 +87,18 @@ router.post('/', authenticate, requireRole('manager'), async (req, res, next) =>
       u.Attributes.find(a => a.Name === 'sub')?.Value === assigneeId
     );
 
-    if (!assigneeExists) {
-      return res.status(400).json({ error: 'Assignee user not found' });
-    }
-
     const assigneeTeamId = assigneeExists.Attributes.find(
       a => a.Name === 'custom:teamId'
     )?.Value;
+
+    // if no teamId provided -> use assignee team
+    const finalTeamId = teamId || assigneeTeamId;
+
+    if (assigneeTeamId !== finalTeamId) {
+      return res.status(400).json({
+        error: 'Assignee does not belong to provided team'
+      });
+    }
 
     const task = {
       taskId: uuidv4(),
@@ -101,7 +107,7 @@ router.post('/', authenticate, requireRole('manager'), async (req, res, next) =>
       priority,
       deadline,
       assigneeId,
-      teamId: assigneeTeamId,
+      teamId: finalTeamId,
       imageUrl: imageUrl || null,
       imageKey: imageKey || null,
       status: 'To Do',
@@ -113,6 +119,7 @@ router.post('/', authenticate, requireRole('manager'), async (req, res, next) =>
       Item: task
     }));
 
+    if (process.env.SNS_TASK_ASSIGNMENT_TOPIC_ARN) {
     await sns.send(new PublishCommand({
       TopicArn: process.env.SNS_TASK_ASSIGNMENT_TOPIC_ARN,
       Subject: 'New Task Assigned',
@@ -124,6 +131,7 @@ router.post('/', authenticate, requireRole('manager'), async (req, res, next) =>
         deadline: task.deadline
       })
     }));
+}
 
     res.status(201).json(task);
 
@@ -192,12 +200,16 @@ router.put('/:id', authenticate, requireRole('manager'), async (req, res, next) 
       priority,
       deadline,
       assigneeId,
+      teamId,
       imageUrl,
       imageKey
     } = req.body;
 
+    // validate priority
     if (priority && !validPriorities.includes(priority)) {
-        return res.status(400).json({ error: 'Invalid priority (Options: High / Medium / Low)' });
+      return res.status(400).json({
+        error: 'Invalid priority (Options: High / Medium / Low)'
+      });
     }
 
     // get existing task
@@ -214,97 +226,118 @@ router.put('/:id', authenticate, requireRole('manager'), async (req, res, next) 
       });
     }
 
-    // validate assignee exists in Cognito
-    const usersResult = await cognitoClient.send(new ListUsersCommand({
-      UserPoolId: process.env.COGNITO_USER_POOL_ID
-    }));
+    // defaults to existing values
+    let finalAssigneeId = assigneeId || existingTask.assigneeId;
+    let finalTeamId = teamId || existingTask.teamId;
 
-    const assigneeExists = usersResult.Users.find(u =>
-      u.Attributes.find(a => a.Name === 'sub')?.Value === assigneeId
-    );
+    if (assigneeId !== undefined || teamId !== undefined) {
+      const usersResult = await cognitoClient.send(new ListUsersCommand({
+        UserPoolId: process.env.COGNITO_USER_POOL_ID
+      }));
 
-    if (assigneeId !== undefined) {
-        const assigneeExists = usersResult.Users.find(u =>
-            u.Attributes.find(a => a.Name === 'sub')?.Value === assigneeId
-        );
+      // use updated assignee OR existing assignee
+      const assigneeToValidate =
+        assigneeId || existingTask.assigneeId;
 
-        if (!assigneeExists) {
-            return res.status(400).json({ error: 'Assignee user not found' });
-        }
+      const assigneeUser = usersResult.Users.find(u =>
+        u.Attributes.find(a => a.Name === 'sub')?.Value === assigneeToValidate
+      );
 
-        const assigneeTeamId = assigneeExists.Attributes.find(
-            a => a.Name === 'custom:teamId'
-        )?.Value;
+      if (!assigneeUser) {
+        return res.status(400).json({
+          error: 'Assignee user not found'
+        });
+      }
 
-        teamId = assigneeTeamId;
+      const assigneeTeamId = assigneeUser.Attributes.find(
+        a => a.Name === 'custom:teamId'
+      )?.Value;
+
+      // if no teamId sent -> use assignee team
+      if (!teamId) {
+        finalTeamId = assigneeTeamId;
+      }
+
+      // validate match
+      if (
+        assigneeTeamId?.trim().toLowerCase() !==
+        finalTeamId?.trim().toLowerCase()
+      ) {
+        return res.status(400).json({
+          error: 'Assignee does not belong to provided team'
+        });
+    }
     }
 
+    // build update dynamically
     let UpdateExpression = 'SET updatedAt = :updatedAt';
     let ExpressionAttributeValues = {
-        ':updatedAt': new Date().toISOString()
+      ':updatedAt': new Date().toISOString()
     };
 
     if (title !== undefined) {
-        UpdateExpression += ', title = :title';
-        ExpressionAttributeValues[':title'] = title;
+      UpdateExpression += ', title = :title';
+      ExpressionAttributeValues[':title'] = title;
     }
 
     if (description !== undefined) {
-        UpdateExpression += ', description = :description';
-        ExpressionAttributeValues[':description'] = description;
+      UpdateExpression += ', description = :description';
+      ExpressionAttributeValues[':description'] = description;
     }
 
-    if (priority !== undefined && !validPriorities.includes(priority)) {
-        return res.status(400).json({
-            error: 'Invalid priority (Options: High / Medium / Low)'
-        });
+    if (priority !== undefined) {
+      UpdateExpression += ', priority = :priority';
+      ExpressionAttributeValues[':priority'] = priority;
     }
 
     if (deadline !== undefined) {
-        UpdateExpression += ', deadline = :deadline';
-        ExpressionAttributeValues[':deadline'] = deadline;
+      UpdateExpression += ', deadline = :deadline';
+      ExpressionAttributeValues[':deadline'] = deadline;
     }
 
     if (assigneeId !== undefined) {
-        UpdateExpression += ', assigneeId = :assigneeId';
-        ExpressionAttributeValues[':assigneeId'] = assigneeId;
+      UpdateExpression += ', assigneeId = :assigneeId';
+      ExpressionAttributeValues[':assigneeId'] = finalAssigneeId;
+    }
+
+    if (teamId !== undefined || assigneeId !== undefined) {
+      UpdateExpression += ', teamId = :teamId';
+      ExpressionAttributeValues[':teamId'] = finalTeamId;
     }
 
     if (imageUrl !== undefined) {
-        UpdateExpression += ', imageUrl = :imageUrl';
-        ExpressionAttributeValues[':imageUrl'] = imageUrl;
+      UpdateExpression += ', imageUrl = :imageUrl';
+      ExpressionAttributeValues[':imageUrl'] = imageUrl;
     }
 
     if (imageKey !== undefined) {
-        UpdateExpression += ', imageKey = :imageKey';
-        ExpressionAttributeValues[':imageKey'] = imageKey;
-    }
-
-    if (teamId !== undefined) {
-        UpdateExpression += ', teamId = :teamId';
-        ExpressionAttributeValues[':teamId'] = teamId;
+      UpdateExpression += ', imageKey = :imageKey';
+      ExpressionAttributeValues[':imageKey'] = imageKey;
     }
 
     // update task
     await dynamoDB.send(new UpdateCommand({
-        TableName: TASKS_TABLE,
-        Key: { taskId: req.params.id },
-        UpdateExpression,
-        ExpressionAttributeValues
+      TableName: TASKS_TABLE,
+      Key: { taskId: req.params.id },
+      UpdateExpression,
+      ExpressionAttributeValues
     }));
 
-    // publish SNS event if assignee changed
-    if (existingTask.assigneeId !== assigneeId) {
-
+    // SNS notification if reassigned
+    if (
+      assigneeId !== undefined &&
+      existingTask.assigneeId !== assigneeId &&
+      process.env.SNS_TASK_ASSIGNMENT_TOPIC_ARN
+    ) {
       await sns.send(new PublishCommand({
         TopicArn: process.env.SNS_TASK_ASSIGNMENT_TOPIC_ARN,
         Subject: 'Task Reassigned',
         Message: JSON.stringify({
-            taskId: req.params.id,
-            title: title ?? existingTask.title,
-            assigneeId,
-            teamId: teamId ?? existingTask.teamId,
-            deadline: deadline ?? existingTask.deadline
+          taskId: req.params.id,
+          title: title ?? existingTask.title,
+          assigneeId: finalAssigneeId,
+          teamId: finalTeamId,
+          deadline: deadline ?? existingTask.deadline
         })
       }));
     }
@@ -387,6 +420,7 @@ router.put('/:id/status', authenticate, async (req, res, next) => {
     await dynamoDB.send(new PutCommand({
         TableName: AUDIT_TABLE,
         Item: {
+            logId: uuidv4(),
             taskId: req.params.id,
             timestamp: new Date().toISOString(),
             changedBy: req.user.userId,
@@ -409,17 +443,24 @@ router.get('/:id/audit', authenticate, async (req, res, next) => {
       Key: { taskId: req.params.id }
     }));
 
-    assertTaskAccess(taskResult.Item, req.user);
+    const task = taskResult.Item;
+
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    assertTaskAccess(task, req.user);
 
     const logs = await dynamoDB.send(new QueryCommand({
-        TableName: AUDIT_TABLE,
-        KeyConditionExpression: 'taskId = :t',
-        ExpressionAttributeValues: {
-            ':t': req.params.id
-        }
+      TableName: AUDIT_TABLE,
+      IndexName: 'taskId-index',
+      KeyConditionExpression: 'taskId = :t',
+      ExpressionAttributeValues: {
+        ':t': req.params.id
+      }
     }));
 
-    res.json(logs.Items);
+    res.json(logs.Items || []);
   } catch (err) {
     next(err);
   }
