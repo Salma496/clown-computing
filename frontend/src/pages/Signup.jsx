@@ -4,27 +4,28 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 
 export default function Signup() {
-  const { signup } = useAuth();
+  const { signup, confirmSignup, resendConfirmationCode } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '', name: '', role: 'employee', teamId: '' });
   const [teams, setTeams] = useState([]);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState('signup'); // 'signup' or 'confirm'
+  const [code, setCode] = useState('');
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState('');
 
   useEffect(() => {
-    // Try to fetch teams; if backend not ready, show empty
     api.get('/teams').then(r => setTeams(r.data)).catch(() => {});
   }, []);
 
-  const handleSubmit = async (e) => {
+  const handleSignup = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
       await signup(form.email, form.password, form.name, form.role, form.teamId);
-      setSuccess('Account created! Please check your email for a verification code, then sign in.');
-      setTimeout(() => navigate('/login'), 3000);
+      setStep('confirm');
     } catch (err) {
       setError(err.message || 'Signup failed');
     } finally {
@@ -32,15 +33,113 @@ export default function Signup() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 opacity-20"
-        style={{
+  const handleConfirm = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await confirmSignup(form.email, code);
+      navigate('/login');
+    } catch (err) {
+      setError(err.message || 'Invalid code. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setResendLoading(true);
+    setResendSuccess('');
+    setError('');
+    try {
+      await resendConfirmationCode(form.email);
+      setResendSuccess('A new code has been sent to your email.');
+    } catch (err) {
+      setError(err.message || 'Failed to resend code.');
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
+  if (step === 'confirm') {
+    return (
+      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-4">
+        <div className="absolute inset-0 opacity-20" style={{
           backgroundImage: `radial-gradient(circle at 80% 50%, #6366f1 0%, transparent 50%),
                             radial-gradient(circle at 20% 80%, #f97316 0%, transparent 40%)`,
-        }}
-      />
+        }} />
+        <div className="w-full max-w-md relative z-10">
+          <div className="mb-10 text-center">
+            <span className="text-3xl font-black tracking-tighter text-white font-['Syne',sans-serif]">
+              CLOWN<span className="text-[#f97316]">.</span>COMPUTING
+            </span>
+            <h1 className="text-4xl font-black text-white mt-6 mb-2 font-['Syne',sans-serif]">Check your email</h1>
+            <p className="text-zinc-400">We sent a verification code to</p>
+            <p className="text-[#f97316] font-semibold mt-1">{form.email}</p>
+          </div>
+
+          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8">
+            <form onSubmit={handleConfirm} className="space-y-5">
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg text-sm">
+                  {error}
+                </div>
+              )}
+              {resendSuccess && (
+                <div className="bg-green-500/10 border border-green-500/30 text-green-400 px-4 py-3 rounded-lg text-sm">
+                  {resendSuccess}
+                </div>
+              )}
+              <div>
+                <label className="text-zinc-400 text-xs uppercase tracking-widest mb-2 block">Verification Code</label>
+                <input
+                  type="text"
+                  placeholder="Enter 6-digit code"
+                  value={code}
+                  onChange={e => setCode(e.target.value.trim())}
+                  required
+                  maxLength={6}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-600 text-center text-2xl tracking-widest focus:outline-none focus:border-[#f97316]/60 transition-all"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading || code.length < 6}
+                className="w-full bg-[#f97316] hover:bg-[#ea6c0e] text-white font-black py-3.5 rounded-xl transition-all text-sm tracking-widest uppercase disabled:opacity-50"
+              >
+                {loading ? 'Verifying...' : 'Verify Account'}
+              </button>
+            </form>
+
+            <div className="mt-6 text-center">
+              <p className="text-zinc-500 text-sm">Didn't receive the code?</p>
+              <button
+                onClick={handleResend}
+                disabled={resendLoading}
+                className="text-[#f97316] hover:text-[#fb923c] text-sm font-semibold mt-1 transition-colors disabled:opacity-50"
+              >
+                {resendLoading ? 'Sending...' : 'Resend code'}
+              </button>
+            </div>
+
+            <p className="text-center text-zinc-500 text-sm mt-4">
+              Wrong email?{' '}
+              <button onClick={() => setStep('signup')} className="text-[#f97316] hover:text-[#fb923c] transition-colors font-semibold">
+                Go back
+              </button>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-4">
+      <div className="absolute inset-0 opacity-20" style={{
+        backgroundImage: `radial-gradient(circle at 80% 50%, #6366f1 0%, transparent 50%),
+                          radial-gradient(circle at 20% 80%, #f97316 0%, transparent 40%)`,
+      }} />
       <div className="w-full max-w-md relative z-10">
         <div className="mb-10 text-center">
           <div className="inline-flex items-center gap-2 mb-8">
@@ -53,57 +152,34 @@ export default function Signup() {
         </div>
 
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8">
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSignup} className="space-y-4">
             {error && (
               <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg text-sm">
                 {error}
               </div>
             )}
-            {success && (
-              <div className="bg-green-500/10 border border-green-500/30 text-green-400 px-4 py-3 rounded-lg text-sm">
-                {success}
-              </div>
-            )}
             <div>
               <label className="text-zinc-400 text-xs uppercase tracking-widest mb-2 block">Full Name</label>
-              <input
-                type="text"
-                placeholder="Your name"
-                value={form.name}
-                onChange={e => setForm({ ...form, name: e.target.value })}
-                required
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-[#f97316]/60 transition-all"
-              />
+              <input type="text" placeholder="Your name" value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })} required
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-[#f97316]/60 transition-all" />
             </div>
             <div>
               <label className="text-zinc-400 text-xs uppercase tracking-widest mb-2 block">Email</label>
-              <input
-                type="email"
-                placeholder="you@company.com"
-                value={form.email}
-                onChange={e => setForm({ ...form, email: e.target.value })}
-                required
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-[#f97316]/60 transition-all"
-              />
+              <input type="email" placeholder="you@company.com" value={form.email}
+                onChange={e => setForm({ ...form, email: e.target.value })} required
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-[#f97316]/60 transition-all" />
             </div>
             <div>
               <label className="text-zinc-400 text-xs uppercase tracking-widest mb-2 block">Password</label>
-              <input
-                type="password"
-                placeholder="Min 8 chars, upper, number, symbol"
-                value={form.password}
-                onChange={e => setForm({ ...form, password: e.target.value })}
-                required
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-[#f97316]/60 transition-all"
-              />
+              <input type="password" placeholder="Min 8 chars, upper, number, symbol" value={form.password}
+                onChange={e => setForm({ ...form, password: e.target.value })} required
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-[#f97316]/60 transition-all" />
             </div>
             <div>
               <label className="text-zinc-400 text-xs uppercase tracking-widest mb-2 block">Role</label>
-              <select
-                value={form.role}
-                onChange={e => setForm({ ...form, role: e.target.value })}
-                className="w-full bg-[#1a1a24] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#f97316]/60 transition-all"
-              >
+              <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}
+                className="w-full bg-[#1a1a24] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#f97316]/60 transition-all">
                 <option value="employee">Employee</option>
                 <option value="manager">Manager</option>
               </select>
@@ -112,40 +188,26 @@ export default function Signup() {
               <div>
                 <label className="text-zinc-400 text-xs uppercase tracking-widest mb-2 block">Team</label>
                 {teams.length > 0 ? (
-                  <select
-                    value={form.teamId}
-                    onChange={e => setForm({ ...form, teamId: e.target.value })}
-                    className="w-full bg-[#1a1a24] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#f97316]/60 transition-all"
-                  >
+                  <select value={form.teamId} onChange={e => setForm({ ...form, teamId: e.target.value })}
+                    className="w-full bg-[#1a1a24] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#f97316]/60 transition-all">
                     <option value="">Select a team</option>
-                    {teams.map(t => (
-                      <option key={t.teamId} value={t.teamId}>{t.name}</option>
-                    ))}
+                    {teams.map(t => <option key={t.teamId} value={t.teamId}>{t.name}</option>)}
                   </select>
                 ) : (
-                  <input
-                    type="text"
-                    placeholder="Team ID (ask your manager)"
-                    value={form.teamId}
+                  <input type="text" placeholder="Team ID (ask your manager)" value={form.teamId}
                     onChange={e => setForm({ ...form, teamId: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-[#f97316]/60 transition-all"
-                  />
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-[#f97316]/60 transition-all" />
                 )}
               </div>
             )}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[#f97316] hover:bg-[#ea6c0e] text-white font-black py-3.5 rounded-xl transition-all text-sm tracking-widest uppercase disabled:opacity-50 mt-2"
-            >
+            <button type="submit" disabled={loading}
+              className="w-full bg-[#f97316] hover:bg-[#ea6c0e] text-white font-black py-3.5 rounded-xl transition-all text-sm tracking-widest uppercase disabled:opacity-50 mt-2">
               {loading ? 'Creating...' : 'Create Account'}
             </button>
           </form>
           <p className="text-center text-zinc-500 text-sm mt-6">
             Already have an account?{' '}
-            <Link to="/login" className="text-[#f97316] hover:text-[#fb923c] transition-colors font-semibold">
-              Sign in
-            </Link>
+            <Link to="/login" className="text-[#f97316] hover:text-[#fb923c] transition-colors font-semibold">Sign in</Link>
           </p>
         </div>
       </div>

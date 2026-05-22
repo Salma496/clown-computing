@@ -100,6 +100,24 @@ export function AuthProvider({ children }) {
       });
     });
 
+  const confirmSignup = (email, code) =>
+    new Promise((resolve, reject) => {
+      const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
+      cognitoUser.confirmRegistration(code, true, (err, result) => {
+        if (err) reject(err);
+        else resolve(result);
+      });
+    });
+
+  const resendConfirmationCode = (email) =>
+    new Promise((resolve, reject) => {
+      const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
+      cognitoUser.resendConfirmationCode((err, result) => {
+        if (err) reject(err);
+        else resolve(result);
+      });
+    });
+
   const logout = () => {
     const cognitoUser = userPool.getCurrentUser();
     if (cognitoUser) cognitoUser.signOut();
@@ -108,7 +126,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout, completeNewPassword }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, logout, completeNewPassword, confirmSignup, resendConfirmationCode }}>
       {children}
     </AuthContext.Provider>
   );
