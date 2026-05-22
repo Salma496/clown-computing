@@ -87,6 +87,12 @@ router.post('/', authenticate, requireRole('manager'), async (req, res, next) =>
       u.Attributes.find(a => a.Name === 'sub')?.Value === assigneeId
     );
 
+    if (!assigneeExists) {
+      return res.status(400).json({
+        error: 'Assignee user not found'
+      });
+    }
+
     const assigneeTeamId = assigneeExists.Attributes.find(
       a => a.Name === 'custom:teamId'
     )?.Value;
@@ -259,10 +265,7 @@ router.put('/:id', authenticate, requireRole('manager'), async (req, res, next) 
       }
 
       // validate match
-      if (
-        assigneeTeamId?.trim().toLowerCase() !==
-        finalTeamId?.trim().toLowerCase()
-      ) {
+      if (assigneeTeamId !== finalTeamId) {
         return res.status(400).json({
           error: 'Assignee does not belong to provided team'
         });
@@ -367,6 +370,41 @@ router.delete('/:id', authenticate, requireRole('manager'), async (req, res, nex
       await s3.send(new DeleteObjectCommand({
         Bucket: process.env.S3_ORIGINALS_BUCKET,
         Key: task.imageKey
+      }));
+    }
+
+    const commentsResult = await dynamoDB.send(new ScanCommand({
+      TableName: COMMENTS_TABLE,
+      FilterExpression: 'taskId = :t',
+      ExpressionAttributeValues: {
+        ':t': req.params.id
+      }
+    }));
+
+    for (const comment of commentsResult.Items || []) {
+      await dynamoDB.send(new DeleteCommand({
+        TableName: COMMENTS_TABLE,
+        Key: {
+          commentId: comment.commentId
+        }
+      }));
+    }
+
+    const auditResult = await dynamoDB.send(new QueryCommand({
+      TableName: AUDIT_TABLE,
+      IndexName: 'taskId-index',
+      KeyConditionExpression: 'taskId = :t',
+      ExpressionAttributeValues: {
+        ':t': req.params.id
+      }
+    }));
+
+    for (const log of auditResult.Items || []) {
+      await dynamoDB.send(new DeleteCommand({
+        TableName: AUDIT_TABLE,
+        Key: {
+          logId: log.logId
+        }
       }));
     }
 
@@ -523,9 +561,10 @@ router.get('/:id/comments', authenticate, async (req, res, next) => {
 
     assertTaskAccess(taskResult.Item, req.user);
 
-    const commentsResult = await dynamoDB.send(new ScanCommand({
+    const commentsResult = await dynamoDB.send(new QueryCommand({
       TableName: COMMENTS_TABLE,
-      FilterExpression: 'taskId = :t',
+      IndexName: 'taskId-index',
+      KeyConditionExpression: 'taskId = :t',
       ExpressionAttributeValues: {
         ':t': req.params.id
       }
