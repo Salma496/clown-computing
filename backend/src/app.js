@@ -13,17 +13,9 @@ const app = express();
 
 app.use(helmet());
 app.use(cors({
-  origin: [
-    'https://d2ol84wr1wftuz.cloudfront.net',
-    'https://member5.d3uhumqw1kiwth.amplifyapp.com',
-    'https://member5.dlx9c31pr8jhi.amplifyapp.com',
-    'https://main.dlx9c31pr8jhi.amplifyapp.com',
-    'http://localhost:3000',
-    'http://localhost:5173'
-  ],
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
 }));
 app.use(morgan('dev'));
 app.use(express.json());
