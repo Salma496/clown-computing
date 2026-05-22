@@ -16,6 +16,8 @@ app.use(cors({
   origin: [
     'https://d2ol84wr1wftuz.cloudfront.net',
     'https://member5.d3uhumqw1kiwth.amplifyapp.com',
+    'https://member5.dlx9c31pr8jhi.amplifyapp.com',
+    'https://main.dlx9c31pr8jhi.amplifyapp.com',
     'http://localhost:3000',
     'http://localhost:5173'
   ],
