@@ -12,7 +12,17 @@ const taskRoutes = require('./routes/tasks');
 const app = express();
 
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://d2ol84wr1wftuz.cloudfront.net',
+    'https://member5.d3uhumqw1kiwth.amplifyapp.com',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
 app.use(morgan('dev'));
 app.use(express.json());
 
